@@ -75,9 +75,13 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg);c
 .goal-btn.active{border-color:var(--accent);color:var(--text)}
 .sub-selector{margin-bottom:14px}
 .sub-label{font-size:12px;color:var(--sub);margin-bottom:6px}
-.sub-grid{display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:2px 0}
-.sub-btn{flex-shrink:0;padding:8px 14px;background:var(--card);border:2px solid transparent;border-radius:10px;color:var(--sub);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap}
-.sub-btn.active{border-color:var(--green);color:var(--text)}
+.sub-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.sub-btn{padding:10px 6px;background:var(--card);border:2px solid transparent;border-radius:10px;color:var(--sub);font-size:12px;font-weight:600;cursor:pointer;text-align:center;display:flex;flex-direction:column;align-items:center;gap:2px;transition:all .15s}
+.sub-btn:active{transform:scale(.95)}
+.sub-btn.active{border-color:var(--green);color:var(--text);background:#1a2e1a}
+.sub-btn .sub-time{font-size:11px;font-variant-numeric:tabular-nums;color:var(--sub);font-weight:400}
+.sub-btn.active .sub-time{color:var(--green)}
+.sub-current{text-align:center;font-size:13px;color:var(--green);font-weight:600;margin-top:6px;min-height:18px}
 .action-row{display:flex;gap:10px;margin-bottom:14px}
 .action-btn{flex:1;padding:16px;border:none;border-radius:14px;font-size:15px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px}
 .action-btn:active{transform:scale(.97)}
@@ -313,16 +317,9 @@ body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg);c
     <button class="goal-btn" onclick="setGoal(60,this)">60分</button>
   </div>
   <div class="sub-selector hidden" id="sub-selector">
-    <div class="sub-label">ながら作業</div>
-    <div class="sub-grid">
-      <button class="sub-btn active" onclick="setSubCategory(null,this)">なし</button>
-      <button class="sub-btn" onclick="setSubCategory('email',this)">メール</button>
-      <button class="sub-btn" onclick="setSubCategory('phone',this)">電話</button>
-      <button class="sub-btn" onclick="setSubCategory('docs_review',this)">資料確認</button>
-      <button class="sub-btn" onclick="setSubCategory('planning',this)">計画</button>
-      <button class="sub-btn" onclick="setSubCategory('rest',this)">休憩</button>
-      <button class="sub-btn" onclick="setSubCategory('other_sub',this)">その他</button>
-    </div>
+    <div class="sub-label">移動中の作業（タップで切替）</div>
+    <div class="sub-grid" id="sub-grid"></div>
+    <div class="sub-current" id="sub-current"></div>
   </div>
   <div class="action-row hidden" id="action-working">
     <button class="action-btn btn-interrupt" onclick="openInterruptModal()">⏸ 中断</button>
@@ -555,9 +552,11 @@ function startTask(categoryId, subCat, goalMin){
     saveRecords(rec);
     if(record.customerName) addCustomerToList(record.customerName);
   }
+  const now = Date.now();
   currentTask = {
-    categoryId, subCategory: subCat||null, start: Date.now(),
-    goalMinutes: goalMin||0, alerted: false, customerName: '', documentNo: ''
+    categoryId, subCategory: subCat||null, start: now,
+    goalMinutes: goalMin||0, alerted: false, customerName: '', documentNo: '',
+    subTimes: {}, lastSubSwitch: now
   };
   saveCurrentTask();
   interruptionState=null; saveInterruption();
@@ -573,12 +572,23 @@ function startTask(categoryId, subCat, goalMin){
 
 function buildWorkRecord(task, endTime){
   const dur=endTime-task.start, goalMs=(task.goalMinutes||0)*60000, exceeded=goalMs>0&&dur>goalMs;
+  // Finalize sub-task times for travel
+  let subTimes=null;
+  if(task.categoryId==='travel' && task.subTimes){
+    subTimes={...(task.subTimes||{})};
+    if(task.lastSubSwitch){
+      const lastElapsed=endTime-task.lastSubSwitch;
+      const lastKey=task.subCategory||'_none';
+      subTimes[lastKey]=(subTimes[lastKey]||0)+lastElapsed;
+    }
+  }
   return {
     type:'work', categoryId:task.categoryId, subCategory:task.subCategory||null,
     start:task.start, end:endTime, duration:dur,
     goalMinutes:task.goalMinutes||0, exceeded, exceededTime:exceeded?dur-goalMs:0,
     customerName: (task.customerName||'').trim() || '',
-    documentNo: (task.documentNo||'').trim() || ''
+    documentNo: (task.documentNo||'').trim() || '',
+    subTimes: subTimes
   };
 }
 
@@ -601,11 +611,54 @@ function setGoal(min,btn){
   currentTask.goalMinutes=min; currentTask.alerted=false; saveCurrentTask();
 }
 
-function setSubCategory(sub,btn){
+function setSubCategory(sub){
   if(!currentTask||currentTask.categoryId!=='travel') return;
-  document.querySelectorAll('.sub-btn').forEach(b=>b.classList.remove('active'));
-  btn.classList.add('active');
-  currentTask.subCategory=sub; saveCurrentTask();
+  // Accumulate time for previous sub
+  const now=Date.now();
+  if(currentTask.lastSubSwitch){
+    const elapsed=now-currentTask.lastSubSwitch;
+    const prevSub=currentTask.subCategory||'_none';
+    if(!currentTask.subTimes) currentTask.subTimes={};
+    currentTask.subTimes[prevSub]=(currentTask.subTimes[prevSub]||0)+elapsed;
+  }
+  currentTask.subCategory=sub;
+  currentTask.lastSubSwitch=now;
+  saveCurrentTask();
+  renderSubButtons();
+}
+
+function renderSubButtons(){
+  if(!currentTask||currentTask.categoryId!=='travel') return;
+  const subs=[
+    {id:null,key:'_none',name:'移動のみ',icon:'🚗'},
+    {id:'email',key:'email',name:'メール',icon:'✉️'},
+    {id:'phone',key:'phone',name:'電話',icon:'📞'},
+    {id:'docs_review',key:'docs_review',name:'資料確認',icon:'📄'},
+    {id:'planning',key:'planning',name:'計画',icon:'📋'},
+    {id:'rest',key:'rest',name:'休憩',icon:'☕'},
+    {id:'other_sub',key:'other_sub',name:'その他',icon:'📌'}
+  ];
+  const times=currentTask.subTimes||{};
+  const activeSub=currentTask.subCategory;
+  // Add current sub's live elapsed
+  const liveElapsed=(currentTask.lastSubSwitch)?(Date.now()-currentTask.lastSubSwitch):0;
+  const activeKey=activeSub||'_none';
+
+  document.getElementById('sub-grid').innerHTML=subs.map(s=>{
+    const accumulated=(times[s.key]||0)+(s.key===activeKey?liveElapsed:0);
+    const isActive=(activeSub===s.id);
+    return `<button class="sub-btn ${isActive?'active':''}" onclick="setSubCategory(${s.id===null?'null':"'"+s.id+"'"})">
+      ${s.icon} ${s.name}<span class="sub-time">${accumulated>0?formatHM(accumulated):'-'}</span></button>`;
+  }).join('');
+
+  // Show current activity
+  const curSub=subs.find(s=>s.id===activeSub);
+  const curEl=document.getElementById('sub-current');
+  if(curSub && activeSub!==null){
+    curEl.textContent=`${curSub.icon} ${curSub.name} 作業中`;
+  } else {
+    curEl.textContent='';
+  }
 }
 
 // ============ INTERRUPTION ============
@@ -621,7 +674,7 @@ function confirmInterrupt(reason){
   saveRecords(rec);
   if(record.customerName) addCustomerToList(record.customerName);
   interruptionState = {
-    originalTask: { categoryId:currentTask.categoryId, subCategory:currentTask.subCategory, goalMinutes:currentTask.goalMinutes, customerName:currentTask.customerName||'', documentNo:currentTask.documentNo||'' },
+    originalTask: { categoryId:currentTask.categoryId, subCategory:currentTask.subCategory, goalMinutes:currentTask.goalMinutes, customerName:currentTask.customerName||'', documentNo:currentTask.documentNo||'', subTimes:currentTask.subTimes||{}, lastSubSwitch:Date.now() },
     reason, start: Date.now()
   };
   saveInterruption();
@@ -642,7 +695,7 @@ function endInterruption(){
 
 function resumeOriginalTask(){
   if(!resumeInfo) return;
-  currentTask = { categoryId:resumeInfo.categoryId, subCategory:resumeInfo.subCategory, start:Date.now(), goalMinutes:resumeInfo.goalMinutes||0, alerted:false, customerName:resumeInfo.customerName||'', documentNo:resumeInfo.documentNo||'' };
+  currentTask = { categoryId:resumeInfo.categoryId, subCategory:resumeInfo.subCategory, start:Date.now(), goalMinutes:resumeInfo.goalMinutes||0, alerted:false, customerName:resumeInfo.customerName||'', documentNo:resumeInfo.documentNo||'', subTimes:resumeInfo.subTimes||{}, lastSubSwitch:Date.now() };
   saveCurrentTask();
   resumeInfo=null; saveResume();
   refreshUI();
@@ -682,9 +735,7 @@ function updateControlsVisibility(){
   }
   if(working&&currentTask){
     document.querySelectorAll('.goal-btn').forEach(b=>{const v=parseInt(b.textContent)||0;b.classList.toggle('active',v===(currentTask.goalMinutes||0));});
-    if(currentTask.categoryId==='travel'){
-      document.querySelectorAll('.sub-btn').forEach(b=>{const s=b.getAttribute('onclick').match(/'([^']*)'/);if(s){const v=s[1]==='null'?null:s[1];b.classList.toggle('active',v===currentTask.subCategory);}});
-    }
+    if(currentTask.categoryId==='travel') renderSubButtons();
   }
 }
 
@@ -706,7 +757,7 @@ function updateTimerUI(){
     labelEl.textContent='現在の作業';
     const cat=getCat(currentTask.categoryId);
     let catText=`${cat.icon} ${cat.name}`;
-    if(currentTask.subCategory&&currentTask.categoryId==='travel') catText+=`+${SUB_CATEGORIES[currentTask.subCategory]||''}`;
+    if(currentTask.subCategory&&currentTask.categoryId==='travel') catText+=` + ${SUB_CATEGORIES[currentTask.subCategory]||''}`;
     const elapsed=Date.now()-currentTask.start, goalMs=(currentTask.goalMinutes||0)*60000;
     if(goalMs>0&&elapsed>goalMs){
       statusEl.classList.add('exceeded'); catEl.innerHTML=`<span class="status-dot red"></span>${catText}`;
@@ -723,6 +774,7 @@ function updateTimerUI(){
     timeEl.textContent=formatDuration(elapsed);
     startedEl.textContent=`${formatTime(currentTask.start)} から計測中`;
     updateStatusCustomer();
+    if(currentTask.categoryId==='travel') renderSubButtons();
   } else {
     labelEl.textContent='現在の作業'; catEl.textContent='待機中'; timeEl.textContent='00:00:00'; startedEl.textContent='';
     document.getElementById('status-customer').textContent='';
@@ -764,8 +816,18 @@ function renderHistory(){
     }
     const cat=getCat(r.categoryId);
     let catName=cat.name;
-    if(r.subCategory&&r.categoryId==='travel') catName+=`+${SUB_CATEGORIES[r.subCategory]||''}`;
+    // Legacy: single subCategory display
+    if(r.categoryId==='travel'&&r.subCategory&&!r.subTimes) catName+=`+${SUB_CATEGORIES[r.subCategory]||''}`;
     const custDisplay = r.customerName ? `<div class="history-customer">👤 ${r.customerName}</div>` : '';
+    // SubTimes breakdown for travel
+    let subTimesDisplay='';
+    if(r.subTimes && r.categoryId==='travel'){
+      const ST_LABELS={_none:'移動のみ',email:'メール',phone:'電話',docs_review:'資料確認',planning:'計画',rest:'休憩',other_sub:'その他'};
+      const entries=Object.entries(r.subTimes).filter(([k,v])=>v>0).sort((a,b)=>b[1]-a[1]);
+      if(entries.length>0){
+        subTimesDisplay='<div class="history-badges">'+entries.map(([k,v])=>`<span class="badge badge-goal">${ST_LABELS[k]||k} ${formatHM(v)}</span>`).join('')+'</div>';
+      }
+    }
     const docNoLabel = DOC_NO_CATEGORIES[r.categoryId];
     const docNoDisplay = (r.documentNo && docNoLabel) ? `<div class="history-docno">${docNoLabel}: ${r.documentNo}</div>` : '';
     let badges='';
@@ -773,7 +835,7 @@ function renderHistory(){
     if(r.exceeded) badges+=`<span class="badge badge-exceeded">超過 +${formatHM(r.exceededTime)}</span>`;
     return `<div class="history-item ${r.exceeded?'exceeded-item':''}" onclick="openEditModal(${ridx})">
       <span class="history-icon">${cat.icon}</span>
-      <div class="history-info"><div class="history-cat">${catName}</div>${custDisplay}${docNoDisplay}<div class="history-time-range">${formatTime(r.start)} - ${formatTime(r.end)}</div>${badges?'<div class="history-badges">'+badges+'</div>':''}</div>
+      <div class="history-info"><div class="history-cat">${catName}</div>${custDisplay}${docNoDisplay}<div class="history-time-range">${formatTime(r.start)} - ${formatTime(r.end)}</div>${badges?'<div class="history-badges">'+badges+'</div>':''}${subTimesDisplay}</div>
       <div class="history-duration">${formatHM(r.duration)}</div></div>`;
   }).join('');
 }
@@ -797,10 +859,23 @@ function renderAnalysis(){
   const totalWork=workRecs.reduce((s,r)=>s+r.duration,0), totalInt=intRecs.reduce((s,r)=>s+r.duration,0);
   const exceededCount=workRecs.filter(r=>r.exceeded).length;
   const travelRecs=workRecs.filter(r=>r.categoryId==='travel');
-  const travelOnly=travelRecs.filter(r=>!r.subCategory).reduce((s,r)=>s+r.duration,0);
-  const travelWork=travelRecs.filter(r=>r.subCategory&&r.subCategory!=='rest').reduce((s,r)=>s+r.duration,0);
-  const travelRest=travelRecs.filter(r=>r.subCategory==='rest').reduce((s,r)=>s+r.duration,0);
   const travelTotal=travelRecs.reduce((s,r)=>s+r.duration,0);
+  // Aggregate sub-times across all travel records
+  let travelOnly=0,travelWork=0,travelRest=0;
+  travelRecs.forEach(r=>{
+    if(r.subTimes){
+      Object.entries(r.subTimes).forEach(([k,v])=>{
+        if(k==='_none') travelOnly+=v;
+        else if(k==='rest') travelRest+=v;
+        else travelWork+=v;
+      });
+    } else {
+      // Legacy records
+      if(!r.subCategory) travelOnly+=r.duration;
+      else if(r.subCategory==='rest') travelRest+=r.duration;
+      else travelWork+=r.duration;
+    }
+  });
 
   document.getElementById('stats-grid').innerHTML=`
     <div class="stat-card"><div class="stat-label">総作業時間</div><div class="stat-value">${formatHM(totalWork)}</div></div>
@@ -821,7 +896,20 @@ function renderAnalysis(){
 
   const tbEl=document.getElementById('travel-breakdown'),ttEl=document.getElementById('travel-title');
   if(travelTotal>0){tbEl.classList.remove('hidden');ttEl.classList.remove('hidden');
-    tbEl.innerHTML=`<div class="travel-row"><span class="travel-label">🚗 移動のみ</span><span class="travel-value">${formatHM(travelOnly)}</span></div><div class="travel-row"><span class="travel-label">🚗+📋 移動+作業</span><span class="travel-value">${formatHM(travelWork)}</span></div><div class="travel-row"><span class="travel-label">🚗+☕ 移動+休憩</span><span class="travel-value">${formatHM(travelRest)}</span></div>`;
+    // Detailed sub-task breakdown
+    const subAgg={};
+    const ST_LABELS2={_none:'🚗 移動のみ',email:'✉️ メール',phone:'📞 電話',docs_review:'📄 資料確認',planning:'📋 計画',rest:'☕ 休憩',other_sub:'📌 その他'};
+    travelRecs.forEach(r=>{
+      if(r.subTimes){
+        Object.entries(r.subTimes).forEach(([k,v])=>{subAgg[k]=(subAgg[k]||0)+v;});
+      } else {
+        const k=r.subCategory||'_none';
+        subAgg[k]=(subAgg[k]||0)+r.duration;
+      }
+    });
+    tbEl.innerHTML=Object.entries(subAgg).filter(([k,v])=>v>0).sort((a,b)=>b[1]-a[1]).map(([k,v])=>
+      `<div class="travel-row"><span class="travel-label">${ST_LABELS2[k]||k}</span><span class="travel-value">${formatHM(v)}</span></div>`
+    ).join('');
   } else {tbEl.classList.add('hidden');ttEl.classList.add('hidden');}
 
   const sorted=CATEGORIES.filter(c=>totals[c.id]>0).sort((a,b)=>totals[b.id]-totals[a.id]);
