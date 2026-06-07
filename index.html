@@ -1,0 +1,1039 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="時間記録">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect width='180' height='180' rx='36' fill='%230f0f1a'/><text x='90' y='118' font-size='100' text-anchor='middle' fill='white'>⏱</text></svg>">
+<title>営業時間記録</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0f0f1a;--card:#1a1a2e;--accent:#4361ee;--text:#e8e8e8;--sub:#8888aa;
+  --green:#2ecc71;--orange:#f39c12;--red:#e74c3c;--amber:#f59e0b;
+  --safe-top:env(safe-area-inset-top,20px);--safe-bottom:env(safe-area-inset-bottom,20px);
+}
+body{font-family:-apple-system,'Hiragino Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;-webkit-tap-highlight-color:transparent}
+.tab-bar{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--card);border-top:1px solid #2a2a4a;padding-bottom:var(--safe-bottom);z-index:100}
+.tab-btn{flex:1;padding:10px 0 6px;background:none;border:none;color:var(--sub);font-size:10px;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;transition:color .2s}
+.tab-btn.active{color:var(--accent)}
+.tab-btn .icon{font-size:22px}
+.page{display:none;padding:calc(var(--safe-top)+10px) 16px calc(80px + var(--safe-bottom));min-height:100vh}
+.page.active{display:block}
+.page-title{font-size:22px;font-weight:700;margin-bottom:16px;padding-top:6px}
+.current-status{background:var(--card);border-radius:16px;padding:20px;text-align:center;margin-bottom:16px;transition:background .3s,box-shadow .3s}
+.current-status.interrupted{background:#2e2a1a;border:2px solid var(--amber)}
+.current-status.exceeded{background:#2e1a1a;border:2px solid var(--red);animation:alertPulse 1s infinite}
+@keyframes alertPulse{0%,100%{box-shadow:0 0 0 0 rgba(231,76,60,0.4)}50%{box-shadow:0 0 20px 4px rgba(231,76,60,0.6)}}
+.status-label{font-size:13px;color:var(--sub);margin-bottom:6px}
+.status-category{font-size:26px;font-weight:700;margin-bottom:8px;min-height:36px}
+.status-time{font-size:46px;font-weight:200;font-variant-numeric:tabular-nums;letter-spacing:2px}
+.status-started{font-size:12px;color:var(--sub);margin-top:8px}
+.status-customer{font-size:14px;color:var(--accent);margin-top:4px;font-weight:600}
+.status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);margin-right:6px;animation:pulse 1.5s infinite}
+.status-dot.amber{background:var(--amber)}.status-dot.red{background:var(--red)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.goal-display{font-size:13px;margin-top:6px;color:var(--green);font-weight:600}
+.goal-display.warning{color:var(--amber)}.goal-display.over{color:var(--red);font-weight:700}
+.interrupt-info{margin-top:8px;font-size:13px;color:var(--amber)}
+
+/* Customer Input */
+.customer-section{margin-bottom:14px}
+.customer-input-wrap{position:relative}
+.customer-input{width:100%;background:var(--card);border:2px solid #353565;border-radius:12px;color:var(--text);font-size:15px;padding:12px 14px;font-family:inherit}
+.customer-input:focus{border-color:var(--accent);outline:none}
+.customer-input::placeholder{color:var(--sub)}
+.customer-suggestions{display:none;position:absolute;top:100%;left:0;right:0;background:#252545;border-radius:0 0 12px 12px;border:2px solid var(--accent);border-top:none;max-height:180px;overflow-y:auto;z-index:50;-webkit-overflow-scrolling:touch}
+.customer-suggestions.show{display:block}
+.customer-sug-item{padding:12px 14px;font-size:14px;cursor:pointer;border-bottom:1px solid #353565;display:flex;justify-content:space-between;align-items:center}
+.customer-sug-item:active{background:#303060}
+.customer-sug-item:last-child{border-bottom:none}
+.customer-sug-count{font-size:11px;color:var(--sub)}
+.recent-customers{display:flex;gap:6px;margin-top:8px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:2px 0}
+.recent-chip{flex-shrink:0;padding:6px 12px;background:var(--card);border:1px solid #353565;border-radius:8px;color:var(--sub);font-size:12px;cursor:pointer;white-space:nowrap}
+.recent-chip.active{border-color:var(--accent);color:var(--text);background:#1e2548}
+.recent-chip:active{opacity:.7}
+.customer-clear{background:none;border:none;color:var(--sub);font-size:11px;cursor:pointer;padding:4px 8px;margin-top:4px}
+
+/* Document No Input */
+.docno-section{margin-bottom:14px}
+.docno-input{width:100%;background:var(--card);border:2px solid #353565;border-radius:12px;color:var(--text);font-size:15px;padding:12px 14px;font-family:inherit}
+.docno-input:focus{border-color:var(--accent);outline:none}
+.docno-input::placeholder{color:var(--sub)}
+.docno-label{font-size:12px;color:var(--sub);margin-bottom:6px;display:block}
+.history-docno{font-size:11px;color:var(--orange);margin-top:1px}
+.edit-docno-input{width:100%;background:#252545;border:2px solid #353565;border-radius:10px;color:var(--text);font-size:14px;padding:10px 12px;font-family:inherit}
+.edit-docno-input:focus{border-color:var(--accent);outline:none}
+.edit-docno-input::placeholder{color:#555}
+.status-docno{font-size:13px;color:var(--orange);margin-top:3px;font-weight:600}
+
+.goal-selector{display:flex;gap:6px;margin-bottom:14px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:2px 0}
+.goal-btn{flex-shrink:0;padding:8px 14px;background:var(--card);border:2px solid transparent;border-radius:10px;color:var(--sub);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap}
+.goal-btn.active{border-color:var(--accent);color:var(--text)}
+.sub-selector{margin-bottom:14px}
+.sub-label{font-size:12px;color:var(--sub);margin-bottom:6px}
+.sub-grid{display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:2px 0}
+.sub-btn{flex-shrink:0;padding:8px 14px;background:var(--card);border:2px solid transparent;border-radius:10px;color:var(--sub);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap}
+.sub-btn.active{border-color:var(--green);color:var(--text)}
+.action-row{display:flex;gap:10px;margin-bottom:14px}
+.action-btn{flex:1;padding:16px;border:none;border-radius:14px;font-size:15px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px}
+.action-btn:active{transform:scale(.97)}
+.btn-interrupt{background:var(--amber);color:#000}
+.btn-stop{background:var(--red);color:#fff}
+.btn-resume-end{background:var(--green);color:#fff}
+.interrupt-modal{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:200;align-items:center;justify-content:center;padding:20px}
+.interrupt-modal.show{display:flex}
+.interrupt-modal-content{background:var(--card);border-radius:20px;padding:24px;width:100%;max-width:360px}
+.interrupt-modal-title{font-size:18px;font-weight:700;margin-bottom:16px;text-align:center}
+.interrupt-reason-btn{width:100%;padding:16px;margin-bottom:8px;background:#252545;border:none;border-radius:12px;color:var(--text);font-size:15px;font-weight:600;cursor:pointer;text-align:left;display:flex;align-items:center;gap:10px}
+.interrupt-reason-btn:active{background:#303060}
+.interrupt-cancel{width:100%;padding:14px;margin-top:4px;background:none;border:2px solid #444;border-radius:12px;color:var(--sub);font-size:14px;cursor:pointer;text-align:center}
+.resume-banner{background:linear-gradient(135deg,#1e3a5f,#1a2e4a);border:2px solid var(--accent);border-radius:16px;padding:16px;margin-bottom:14px;display:none;text-align:center}
+.resume-banner.show{display:block}
+.resume-banner-text{font-size:13px;color:var(--sub);margin-bottom:8px}
+.resume-banner-cat{font-size:18px;font-weight:700;margin-bottom:10px}
+.resume-btn{padding:14px 28px;background:var(--accent);border:none;border-radius:12px;color:#fff;font-size:15px;font-weight:700;cursor:pointer}
+.resume-btn:active{transform:scale(.97)}
+.resume-dismiss{background:none;border:none;color:var(--sub);font-size:12px;margin-top:8px;cursor:pointer;padding:6px}
+.category-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.cat-btn{background:var(--card);border:2px solid transparent;border-radius:16px;padding:18px 10px;color:var(--text);font-size:14px;font-weight:600;display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;transition:all .15s;-webkit-user-select:none;user-select:none}
+.cat-btn:active{transform:scale(.95)}
+.cat-btn.active{border-color:var(--accent);background:#1e2548}
+.cat-btn .cat-icon{font-size:28px}
+.hidden{display:none!important}
+.history-date{font-size:14px;color:var(--sub);margin-bottom:12px}
+.history-summary{background:var(--card);border-radius:12px;padding:14px 16px;margin-bottom:12px;display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.summary-item{text-align:center}
+.summary-label{font-size:11px;color:var(--sub)}
+.summary-value{font-size:18px;font-weight:700;margin-top:2px}
+.summary-value.amber{color:var(--amber)}
+.history-list{display:flex;flex-direction:column;gap:8px}
+.history-item{background:var(--card);border-radius:12px;padding:14px 16px;display:flex;align-items:center;gap:12px;cursor:pointer}
+.history-item:active{opacity:.7}
+.history-item.interruption{border-left:3px solid var(--amber)}
+.history-item.exceeded-item{border-left:3px solid var(--red)}
+.history-icon{font-size:22px}
+.history-info{flex:1}
+.history-cat{font-size:14px;font-weight:600}
+.history-customer{font-size:12px;color:var(--accent);margin-top:1px}
+.history-sub{font-size:11px;color:var(--sub)}
+.history-time-range{font-size:12px;color:var(--sub);margin-top:2px}
+.history-badges{display:flex;gap:4px;margin-top:3px;flex-wrap:wrap}
+.badge{font-size:10px;padding:2px 6px;border-radius:4px;font-weight:600}
+.badge-interrupt{background:#3d3520;color:var(--amber)}
+.badge-exceeded{background:#3d2020;color:var(--red)}
+.badge-goal{background:#1a2e3d;color:var(--accent)}
+.history-duration{font-size:14px;font-weight:600;font-variant-numeric:tabular-nums;text-align:right}
+.history-empty{text-align:center;color:var(--sub);padding:40px 0;font-size:14px}
+
+/* Edit Modal */
+.edit-modal{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.75);z-index:200;align-items:flex-end;justify-content:center;padding:0}
+.edit-modal.show{display:flex}
+.edit-modal-backdrop{position:absolute;top:0;left:0;right:0;bottom:0}
+.edit-modal-content{background:#1e1e36;border-radius:20px 20px 0 0;padding:24px 20px calc(20px + var(--safe-bottom));width:100%;max-width:420px;max-height:85vh;overflow-y:auto;-webkit-overflow-scrolling:touch;position:relative;z-index:1}
+.edit-modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
+.edit-modal-title{font-size:18px;font-weight:700}
+.edit-close{background:none;border:none;color:var(--sub);font-size:24px;cursor:pointer;padding:4px 8px}
+.edit-section{margin-bottom:16px}
+.edit-label{font-size:12px;color:var(--sub);margin-bottom:6px;display:block}
+.edit-time-row{display:flex;gap:10px;align-items:center}
+.edit-time-input{flex:1;background:#252545;border:2px solid #353565;border-radius:10px;color:var(--text);font-size:16px;padding:12px;text-align:center;font-family:inherit}
+.edit-time-input:focus{border-color:var(--accent);outline:none}
+.edit-time-sep{color:var(--sub);font-size:16px;font-weight:600}
+.edit-cat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.edit-cat-btn{padding:10px 4px;background:#252545;border:2px solid transparent;border-radius:10px;color:var(--sub);font-size:11px;font-weight:600;cursor:pointer;text-align:center;display:flex;flex-direction:column;align-items:center;gap:3px}
+.edit-cat-btn.active{border-color:var(--accent);color:var(--text);background:#1e2548}
+.edit-cat-btn .ec-icon{font-size:18px}
+.edit-sub-grid{display:flex;gap:6px;flex-wrap:wrap}
+.edit-sub-btn{padding:8px 12px;background:#252545;border:2px solid transparent;border-radius:8px;color:var(--sub);font-size:12px;font-weight:600;cursor:pointer}
+.edit-sub-btn.active{border-color:var(--green);color:var(--text)}
+.edit-customer-input{width:100%;background:#252545;border:2px solid #353565;border-radius:10px;color:var(--text);font-size:14px;padding:10px 12px;font-family:inherit}
+.edit-customer-input:focus{border-color:var(--accent);outline:none}
+.edit-customer-input::placeholder{color:#555}
+.edit-customer-chips{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
+.edit-actions{display:flex;gap:10px;margin-top:20px}
+.edit-save{flex:2;padding:16px;background:var(--accent);border:none;border-radius:14px;color:#fff;font-size:15px;font-weight:700;cursor:pointer}
+.edit-save:active{transform:scale(.97)}
+.edit-delete{flex:1;padding:16px;background:#3d2020;border:2px solid var(--red);border-radius:14px;color:var(--red);font-size:15px;font-weight:700;cursor:pointer}
+.edit-delete:active{transform:scale(.97)}
+.confirm-delete{display:none;background:var(--red);border:none;border-radius:14px;color:#fff;font-size:15px;font-weight:700;cursor:pointer;padding:16px;width:100%;margin-top:8px;text-align:center}
+.confirm-delete.show{display:block}
+
+/* Analysis */
+.stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px}
+.stat-card{background:var(--card);border-radius:12px;padding:14px;text-align:center}
+.stat-label{font-size:11px;color:var(--sub)}
+.stat-value{font-size:20px;font-weight:700;margin-top:4px}
+.stat-value.small{font-size:16px}
+.chart-container{background:var(--card);border-radius:16px;padding:20px;margin-bottom:16px;display:flex;justify-content:center}
+.chart-container canvas{max-width:240px;max-height:240px}
+.section-title{font-size:14px;color:var(--sub);margin-bottom:10px;margin-top:4px}
+.ratio-bar-container{background:var(--card);border-radius:12px;padding:16px;margin-bottom:16px}
+.ratio-bar-outer{height:32px;background:#2a2a4a;border-radius:8px;overflow:hidden;display:flex;margin-bottom:10px}
+.ratio-bar-seg{height:100%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;transition:width .5s;min-width:0}
+.ratio-legend{display:flex;gap:12px;font-size:11px;color:var(--sub);flex-wrap:wrap}
+.ratio-legend span::before{content:'';display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:middle}
+.leg-sales::before{background:var(--accent)}.leg-indirect::before{background:var(--orange)}.leg-travel::before{background:#6c757d}.leg-other::before{background:#555}
+.breakdown-list{display:flex;flex-direction:column;gap:8px;margin-bottom:16px}
+.breakdown-item{background:var(--card);border-radius:12px;padding:14px 16px;display:flex;align-items:center;gap:12px}
+.breakdown-icon{font-size:20px}
+.breakdown-info{flex:1}
+.breakdown-cat{font-size:13px;font-weight:600}
+.breakdown-bar-outer{height:6px;background:#2a2a4a;border-radius:3px;margin-top:5px;overflow:hidden}
+.breakdown-bar-inner{height:100%;border-radius:3px;transition:width .5s}
+.breakdown-time{font-size:13px;font-weight:600;text-align:right;font-variant-numeric:tabular-nums}
+.breakdown-pct{font-size:11px;color:var(--sub);text-align:right}
+.travel-breakdown{background:var(--card);border-radius:12px;padding:16px;margin-bottom:16px}
+.travel-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #252545}
+.travel-row:last-child{border-bottom:none}
+.travel-label{font-size:13px}
+.travel-value{font-size:14px;font-weight:600;font-variant-numeric:tabular-nums}
+.period-selector{display:flex;gap:8px;margin-bottom:16px}
+.period-btn{flex:1;padding:10px;background:var(--card);border:2px solid transparent;border-radius:10px;color:var(--sub);font-size:13px;font-weight:600;cursor:pointer}
+.period-btn.active{border-color:var(--accent);color:var(--text)}
+
+/* Customer Analysis */
+.cust-item{background:var(--card);border-radius:12px;padding:14px 16px;margin-bottom:8px}
+.cust-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.cust-name{font-size:15px;font-weight:700}
+.cust-total{font-size:15px;font-weight:700;font-variant-numeric:tabular-nums}
+.cust-meta{font-size:11px;color:var(--sub);display:flex;gap:12px}
+.cust-cats{display:flex;gap:4px;margin-top:6px;flex-wrap:wrap}
+.cust-cat-tag{font-size:10px;padding:2px 6px;border-radius:4px;background:#252545;color:var(--sub)}
+
+/* Export/Import */
+.export-section{margin-top:24px;padding-top:16px;border-top:1px solid #252545}
+.export-row{display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.export-btn{flex:1;padding:12px;background:var(--card);border:2px solid #353565;border-radius:10px;color:var(--text);font-size:13px;font-weight:600;cursor:pointer;text-align:center;min-width:100px}
+.export-btn:active{opacity:.7}
+.import-input{display:none}
+</style>
+</head>
+<body>
+
+<!-- Interrupt Reason Modal -->
+<div class="interrupt-modal" id="interrupt-modal">
+  <div class="interrupt-modal-content">
+    <div class="interrupt-modal-title">中断理由を選択</div>
+    <button class="interrupt-reason-btn" onclick="confirmInterrupt('email_check')">✉️ メール確認</button>
+    <button class="interrupt-reason-btn" onclick="confirmInterrupt('phone')">📞 電話</button>
+    <button class="interrupt-reason-btn" onclick="confirmInterrupt('internal')">👤 社内依頼</button>
+    <button class="interrupt-reason-btn" onclick="confirmInterrupt('urgent')">🔥 急ぎ対応</button>
+    <button class="interrupt-reason-btn" onclick="confirmInterrupt('other')">📌 その他</button>
+    <button class="interrupt-cancel" onclick="closeInterruptModal()">キャンセル</button>
+  </div>
+</div>
+
+<!-- Edit Record Modal -->
+<div class="edit-modal" id="edit-modal" onclick="event.stopPropagation()">
+  <div class="edit-modal-backdrop" onclick="closeEditModal()"></div>
+  <div class="edit-modal-content">
+    <div class="edit-modal-header">
+      <div class="edit-modal-title" id="edit-title">記録を編集</div>
+      <button class="edit-close" onclick="closeEditModal()">&times;</button>
+    </div>
+    <div class="edit-section">
+      <label class="edit-label">時刻</label>
+      <div class="edit-time-row">
+        <input type="time" class="edit-time-input" id="edit-start">
+        <span class="edit-time-sep">〜</span>
+        <input type="time" class="edit-time-input" id="edit-end">
+      </div>
+    </div>
+    <div class="edit-section" id="edit-customer-section">
+      <label class="edit-label">顧客名</label>
+      <input type="text" class="edit-customer-input" id="edit-customer" placeholder="顧客名（任意）" autocomplete="off">
+      <div class="edit-customer-chips" id="edit-customer-chips"></div>
+    </div>
+    <div class="edit-section hidden" id="edit-docno-section">
+      <label class="edit-label" id="edit-docno-label">見積No</label>
+      <input type="text" class="edit-docno-input" id="edit-docno" placeholder="番号を入力（任意）" autocomplete="off">
+    </div>
+    <div class="edit-section" id="edit-cat-section">
+      <label class="edit-label">カテゴリ</label>
+      <div class="edit-cat-grid" id="edit-cat-grid"></div>
+    </div>
+    <div class="edit-section hidden" id="edit-sub-section">
+      <label class="edit-label">ながら作業</label>
+      <div class="edit-sub-grid" id="edit-sub-grid"></div>
+    </div>
+    <div class="edit-section hidden" id="edit-reason-section">
+      <label class="edit-label">中断理由</label>
+      <div class="edit-sub-grid" id="edit-reason-grid"></div>
+    </div>
+    <div class="edit-actions">
+      <button class="edit-save" onclick="saveEditRecord()">保存</button>
+      <button class="edit-delete" id="edit-delete-btn" onclick="showDeleteConfirm()">削除</button>
+    </div>
+    <button class="confirm-delete" id="confirm-delete-btn" onclick="deleteEditRecord()">本当に削除する</button>
+  </div>
+</div>
+
+<!-- Timer Page -->
+<div class="page active" id="page-timer">
+  <div class="page-title">時間記録</div>
+  <div class="current-status" id="current-status">
+    <div class="status-label" id="status-label">現在の作業</div>
+    <div class="status-category" id="status-category">待機中</div>
+    <div class="status-time" id="status-time">00:00:00</div>
+    <div class="goal-display hidden" id="goal-display"></div>
+    <div class="status-customer" id="status-customer"></div>
+    <div class="status-docno" id="status-docno"></div>
+    <div class="interrupt-info hidden" id="interrupt-info"></div>
+    <div class="status-started" id="status-started"></div>
+  </div>
+
+  <!-- Customer Input -->
+  <div class="customer-section hidden" id="customer-section">
+    <div class="customer-input-wrap">
+      <input type="text" class="customer-input" id="customer-input" placeholder="顧客名（任意）" autocomplete="off"
+             oninput="onCustomerInput()" onfocus="showSuggestions()" onblur="setTimeout(hideSuggestions,200)">
+      <div class="customer-suggestions" id="customer-suggestions"></div>
+    </div>
+    <div class="recent-customers" id="recent-customers"></div>
+  </div>
+
+  <!-- Document No Input -->
+  <div class="docno-section hidden" id="docno-section">
+    <label class="docno-label" id="docno-label">見積No</label>
+    <input type="text" class="docno-input" id="docno-input" placeholder="番号を入力（任意）" autocomplete="off"
+           oninput="onDocNoInput()">
+  </div>
+
+  <div class="goal-selector hidden" id="goal-selector">
+    <button class="goal-btn active" onclick="setGoal(0,this)">なし</button>
+    <button class="goal-btn" onclick="setGoal(5,this)">5分</button>
+    <button class="goal-btn" onclick="setGoal(10,this)">10分</button>
+    <button class="goal-btn" onclick="setGoal(15,this)">15分</button>
+    <button class="goal-btn" onclick="setGoal(30,this)">30分</button>
+    <button class="goal-btn" onclick="setGoal(45,this)">45分</button>
+    <button class="goal-btn" onclick="setGoal(60,this)">60分</button>
+  </div>
+  <div class="sub-selector hidden" id="sub-selector">
+    <div class="sub-label">ながら作業</div>
+    <div class="sub-grid">
+      <button class="sub-btn active" onclick="setSubCategory(null,this)">なし</button>
+      <button class="sub-btn" onclick="setSubCategory('email',this)">メール</button>
+      <button class="sub-btn" onclick="setSubCategory('phone',this)">電話</button>
+      <button class="sub-btn" onclick="setSubCategory('docs_review',this)">資料確認</button>
+      <button class="sub-btn" onclick="setSubCategory('planning',this)">計画</button>
+      <button class="sub-btn" onclick="setSubCategory('rest',this)">休憩</button>
+      <button class="sub-btn" onclick="setSubCategory('other_sub',this)">その他</button>
+    </div>
+  </div>
+  <div class="action-row hidden" id="action-working">
+    <button class="action-btn btn-interrupt" onclick="openInterruptModal()">⏸ 中断</button>
+    <button class="action-btn btn-stop" onclick="stopTask()">⏹ 終了</button>
+  </div>
+  <div class="action-row hidden" id="action-interrupted">
+    <button class="action-btn btn-resume-end" onclick="endInterruption()">▶ 中断終了</button>
+  </div>
+  <div class="resume-banner" id="resume-banner">
+    <div class="resume-banner-text">元の作業に戻りますか？</div>
+    <div class="resume-banner-cat" id="resume-cat"></div>
+    <button class="resume-btn" onclick="resumeOriginalTask()">元の作業に戻る</button><br>
+    <button class="resume-dismiss" onclick="dismissResume()">新しい作業を開始する</button>
+  </div>
+  <div class="category-grid" id="category-grid"></div>
+</div>
+
+<!-- History Page -->
+<div class="page" id="page-history">
+  <div class="page-title">履歴</div>
+  <div class="history-date" id="history-date"></div>
+  <div class="history-summary" id="history-summary"></div>
+  <div class="history-list" id="history-list"></div>
+</div>
+
+<!-- Analysis Page -->
+<div class="page" id="page-analysis">
+  <div class="page-title">分析</div>
+  <div class="period-selector">
+    <button class="period-btn active" onclick="setPeriod('today',this)">今日</button>
+    <button class="period-btn" onclick="setPeriod('week',this)">今週</button>
+    <button class="period-btn" onclick="setPeriod('month',this)">今月</button>
+  </div>
+  <div class="stats-grid" id="stats-grid"></div>
+  <div class="chart-container"><canvas id="pie-chart" width="240" height="240"></canvas></div>
+  <div class="section-title">営業活動比率</div>
+  <div class="ratio-bar-container" id="ratio-container"></div>
+  <div class="section-title" id="travel-title">移動時間内訳</div>
+  <div class="travel-breakdown hidden" id="travel-breakdown"></div>
+  <div class="section-title">カテゴリ別</div>
+  <div class="breakdown-list" id="breakdown-list"></div>
+  <div class="section-title">顧客別工数</div>
+  <div id="customer-analysis"></div>
+  <div class="export-section">
+    <div class="section-title">データ管理</div>
+    <div class="export-row">
+      <button class="export-btn" onclick="exportCSV()">📄 CSV出力</button>
+      <button class="export-btn" onclick="exportJSON()">💾 バックアップ</button>
+    </div>
+    <div class="export-row">
+      <button class="export-btn" onclick="document.getElementById('import-file').click()">📥 復元</button>
+      <input type="file" id="import-file" class="import-input" accept=".json" onchange="importJSON(event)">
+    </div>
+  </div>
+</div>
+
+<!-- Tab Bar -->
+<div class="tab-bar">
+  <button class="tab-btn active" onclick="switchTab('timer',this)"><span class="icon">⏱</span>記録</button>
+  <button class="tab-btn" onclick="switchTab('history',this)"><span class="icon">📋</span>履歴</button>
+  <button class="tab-btn" onclick="switchTab('analysis',this)"><span class="icon">📊</span>分析</button>
+</div>
+
+<script>
+// ============ CONSTANTS ============
+const CATEGORIES = [
+  {id:'visit',name:'顧客訪問',icon:'🏢',type:'sales'},
+  {id:'web_meeting',name:'Web面談',icon:'💻',type:'sales'},
+  {id:'travel',name:'移動',icon:'🚗',type:'travel'},
+  {id:'email',name:'メール',icon:'✉️',type:'indirect'},
+  {id:'estimate',name:'見積',icon:'📝',type:'indirect'},
+  {id:'slip',name:'伝票発行',icon:'🧾',type:'indirect'},
+  {id:'docs',name:'資料作成',icon:'📄',type:'indirect'},
+  {id:'meeting',name:'社内会議',icon:'👥',type:'indirect'},
+  {id:'phone',name:'電話',icon:'📞',type:'sales'},
+  {id:'other',name:'その他',icon:'📌',type:'other'},
+];
+const COLORS = {visit:'#4361ee',web_meeting:'#5e72e4',travel:'#6c757d',email:'#f39c12',estimate:'#e67e22',slip:'#d4a017',docs:'#9b59b6',meeting:'#1abc9c',phone:'#3498db',other:'#95a5a6'};
+const INTERRUPT_REASONS = {email_check:'メール確認',phone:'電話',internal:'社内依頼',urgent:'急ぎ対応',other:'その他'};
+const INTERRUPT_ICONS = {email_check:'✉️',phone:'📞',internal:'👤',urgent:'🔥',other:'📌'};
+const SUB_CATEGORIES = {email:'メール',phone:'電話',docs_review:'資料確認',planning:'計画',rest:'休憩',other_sub:'その他'};
+
+// ============ STATE ============
+let currentTask = JSON.parse(localStorage.getItem('currentTask') || 'null');
+let interruptionState = JSON.parse(localStorage.getItem('interruptionState') || 'null');
+let resumeInfo = JSON.parse(localStorage.getItem('resumeInfo') || 'null');
+let timerInterval = null;
+let audioCtx = null;
+
+function getRecords(){ return JSON.parse(localStorage.getItem('timeRecords') || '[]'); }
+function saveRecords(r){ localStorage.setItem('timeRecords', JSON.stringify(r)); }
+function saveCurrentTask(){ localStorage.setItem('currentTask', JSON.stringify(currentTask)); }
+function saveInterruption(){ localStorage.setItem('interruptionState', JSON.stringify(interruptionState)); }
+function saveResume(){ localStorage.setItem('resumeInfo', JSON.stringify(resumeInfo)); }
+
+// ============ CUSTOMER LIST ============
+function getCustomerList(){ return JSON.parse(localStorage.getItem('customerList') || '[]'); }
+function saveCustomerList(list){ localStorage.setItem('customerList', JSON.stringify(list)); }
+
+function addCustomerToList(name){
+  if(!name) return;
+  name = name.trim();
+  if(!name) return;
+  const list = getCustomerList();
+  const existing = list.find(c => c.name === name);
+  if(existing){
+    existing.count++;
+    existing.lastUsed = Date.now();
+  } else {
+    list.push({ name, count: 1, lastUsed: Date.now() });
+  }
+  saveCustomerList(list);
+}
+
+function getSortedCustomers(filter){
+  let list = getCustomerList();
+  if(filter){
+    const f = filter.toLowerCase();
+    list = list.filter(c => c.name.toLowerCase().includes(f));
+  }
+  return list.sort((a,b) => b.count - a.count || b.lastUsed - a.lastUsed);
+}
+
+// ============ UTILS ============
+function todayStr(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function dateStr(ts){ const d=new Date(ts); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function formatDuration(ms){ const s=Math.floor(ms/1000),h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60; return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`; }
+function formatHM(ms){ const m=Math.floor(ms/60000),h=Math.floor(m/60),rm=m%60; return h>0?`${h}時間${rm}分`:`${rm}分`; }
+function formatTime(ts){ const d=new Date(ts); return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; }
+function getCat(id){ return CATEGORIES.find(c=>c.id===id)||CATEGORIES[9]; }
+
+// ============ ALERT ============
+function playAlert(){
+  try{
+    if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+    const o=audioCtx.createOscillator(),g=audioCtx.createGain();
+    o.connect(g);g.connect(audioCtx.destination);o.frequency.value=880;g.gain.value=0.3;
+    o.start();g.gain.exponentialRampToValueAtTime(0.01,audioCtx.currentTime+0.8);
+    setTimeout(()=>{o.stop()},900);
+    setTimeout(()=>{const o2=audioCtx.createOscillator(),g2=audioCtx.createGain();o2.connect(g2);g2.connect(audioCtx.destination);o2.frequency.value=1100;g2.gain.value=0.3;o2.start();g2.gain.exponentialRampToValueAtTime(0.01,audioCtx.currentTime+0.8);setTimeout(()=>{o2.stop()},900);},400);
+  }catch(e){}
+  try{if(navigator.vibrate) navigator.vibrate([200,100,200,100,200]);}catch(e){}
+}
+
+// ============ CUSTOMER INPUT UI ============
+function onCustomerInput(){
+  const val = document.getElementById('customer-input').value;
+  if(currentTask){ currentTask.customerName = val.trim(); saveCurrentTask(); }
+  showSuggestions();
+}
+
+function showSuggestions(){
+  const input = document.getElementById('customer-input');
+  const sugEl = document.getElementById('customer-suggestions');
+  const val = input.value.trim();
+  const list = getSortedCustomers(val).slice(0, 8);
+  if(list.length === 0 || (!val && list.length === 0)){ sugEl.classList.remove('show'); return; }
+  sugEl.innerHTML = list.map(c =>
+    `<div class="customer-sug-item" onmousedown="selectCustomer('${c.name.replace(/'/g,"\\'")}')">
+      <span>${c.name}</span><span class="customer-sug-count">${c.count}回</span>
+    </div>`
+  ).join('');
+  sugEl.classList.add('show');
+}
+
+function hideSuggestions(){ document.getElementById('customer-suggestions').classList.remove('show'); }
+
+function selectCustomer(name){
+  document.getElementById('customer-input').value = name;
+  hideSuggestions();
+  if(currentTask){ currentTask.customerName = name; saveCurrentTask(); }
+  updateStatusCustomer();
+  renderRecentCustomers();
+}
+
+function renderRecentCustomers(){
+  const el = document.getElementById('recent-customers');
+  const list = getSortedCustomers().slice(0, 10);
+  const current = currentTask ? (currentTask.customerName || '') : '';
+  el.innerHTML = list.map(c =>
+    `<button class="recent-chip ${c.name===current?'active':''}" onclick="selectCustomer('${c.name.replace(/'/g,"\\'")}')">${c.name}</button>`
+  ).join('');
+}
+
+function updateStatusCustomer(){
+  const el = document.getElementById('status-customer');
+  if(currentTask && currentTask.customerName){
+    el.textContent = '👤 ' + currentTask.customerName;
+  } else {
+    el.textContent = '';
+  }
+}
+
+// ============ DOCUMENT NO INPUT ============
+const DOC_NO_CATEGORIES = { estimate: '見積No', slip: '伝票No' };
+
+function onDocNoInput(){
+  const val = document.getElementById('docno-input').value;
+  if(currentTask){ currentTask.documentNo = val.trim(); saveCurrentTask(); }
+  updateStatusDocNo();
+}
+
+function updateDocNoVisibility(){
+  const section = document.getElementById('docno-section');
+  const label = document.getElementById('docno-label');
+  if(currentTask && DOC_NO_CATEGORIES[currentTask.categoryId]){
+    section.classList.remove('hidden');
+    label.textContent = DOC_NO_CATEGORIES[currentTask.categoryId];
+    document.getElementById('docno-input').placeholder = DOC_NO_CATEGORIES[currentTask.categoryId] + '（任意）';
+  } else {
+    section.classList.add('hidden');
+  }
+}
+
+function updateStatusDocNo(){
+  const el = document.getElementById('status-docno');
+  if(currentTask && currentTask.documentNo && DOC_NO_CATEGORIES[currentTask.categoryId]){
+    el.textContent = DOC_NO_CATEGORIES[currentTask.categoryId] + ': ' + currentTask.documentNo;
+  } else {
+    el.textContent = '';
+  }
+}
+
+// ============ TASK MANAGEMENT ============
+function startTask(categoryId, subCat, goalMin){
+  if(currentTask){
+    const end=Date.now(), rec=getRecords();
+    const record = buildWorkRecord(currentTask, end);
+    rec.push(record);
+    saveRecords(rec);
+    if(record.customerName) addCustomerToList(record.customerName);
+  }
+  currentTask = {
+    categoryId, subCategory: subCat||null, start: Date.now(),
+    goalMinutes: goalMin||0, alerted: false, customerName: '', documentNo: ''
+  };
+  saveCurrentTask();
+  interruptionState=null; saveInterruption();
+  resumeInfo=null; saveResume();
+  refreshUI();
+  // Reset inputs
+  const ci = document.getElementById('customer-input');
+  if(ci) ci.value = '';
+  const di = document.getElementById('docno-input');
+  if(di) di.value = '';
+  renderRecentCustomers();
+}
+
+function buildWorkRecord(task, endTime){
+  const dur=endTime-task.start, goalMs=(task.goalMinutes||0)*60000, exceeded=goalMs>0&&dur>goalMs;
+  return {
+    type:'work', categoryId:task.categoryId, subCategory:task.subCategory||null,
+    start:task.start, end:endTime, duration:dur,
+    goalMinutes:task.goalMinutes||0, exceeded, exceededTime:exceeded?dur-goalMs:0,
+    customerName: (task.customerName||'').trim() || '',
+    documentNo: (task.documentNo||'').trim() || ''
+  };
+}
+
+function stopTask(){
+  if(!currentTask) return;
+  const end=Date.now(), rec=getRecords();
+  const record = buildWorkRecord(currentTask, end);
+  rec.push(record);
+  saveRecords(rec);
+  if(record.customerName) addCustomerToList(record.customerName);
+  currentTask=null; saveCurrentTask();
+  resumeInfo=null; saveResume();
+  refreshUI();
+}
+
+function setGoal(min,btn){
+  if(!currentTask) return;
+  document.querySelectorAll('.goal-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  currentTask.goalMinutes=min; currentTask.alerted=false; saveCurrentTask();
+}
+
+function setSubCategory(sub,btn){
+  if(!currentTask||currentTask.categoryId!=='travel') return;
+  document.querySelectorAll('.sub-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  currentTask.subCategory=sub; saveCurrentTask();
+}
+
+// ============ INTERRUPTION ============
+function openInterruptModal(){ if(!currentTask) return; document.getElementById('interrupt-modal').classList.add('show'); }
+function closeInterruptModal(){ document.getElementById('interrupt-modal').classList.remove('show'); }
+
+function confirmInterrupt(reason){
+  closeInterruptModal();
+  if(!currentTask) return;
+  const end=Date.now(), rec=getRecords();
+  const record = buildWorkRecord(currentTask, end);
+  rec.push(record);
+  saveRecords(rec);
+  if(record.customerName) addCustomerToList(record.customerName);
+  interruptionState = {
+    originalTask: { categoryId:currentTask.categoryId, subCategory:currentTask.subCategory, goalMinutes:currentTask.goalMinutes, customerName:currentTask.customerName||'', documentNo:currentTask.documentNo||'' },
+    reason, start: Date.now()
+  };
+  saveInterruption();
+  currentTask=null; saveCurrentTask();
+  refreshUI();
+}
+
+function endInterruption(){
+  if(!interruptionState) return;
+  const end=Date.now(), rec=getRecords();
+  rec.push({ type:'interruption', reason:interruptionState.reason, parentCategoryId:interruptionState.originalTask.categoryId, start:interruptionState.start, end, duration:end-interruptionState.start });
+  saveRecords(rec);
+  resumeInfo = { ...interruptionState.originalTask };
+  saveResume();
+  interruptionState=null; saveInterruption();
+  refreshUI();
+}
+
+function resumeOriginalTask(){
+  if(!resumeInfo) return;
+  currentTask = { categoryId:resumeInfo.categoryId, subCategory:resumeInfo.subCategory, start:Date.now(), goalMinutes:resumeInfo.goalMinutes||0, alerted:false, customerName:resumeInfo.customerName||'', documentNo:resumeInfo.documentNo||'' };
+  saveCurrentTask();
+  resumeInfo=null; saveResume();
+  refreshUI();
+  const ci = document.getElementById('customer-input');
+  if(ci) ci.value = currentTask.customerName || '';
+  const di = document.getElementById('docno-input');
+  if(di) di.value = currentTask.documentNo || '';
+  renderRecentCustomers();
+}
+
+function dismissResume(){ resumeInfo=null; saveResume(); refreshUI(); }
+
+// ============ UI RENDERING ============
+function refreshUI(){ renderCategories(); updateTimerUI(); updateControlsVisibility(); updateStatusCustomer(); updateDocNoVisibility(); updateStatusDocNo(); }
+
+function renderCategories(){
+  const grid=document.getElementById('category-grid');
+  const isIdle=!currentTask&&!interruptionState;
+  grid.innerHTML=CATEGORIES.map(c=>`
+    <button class="cat-btn ${currentTask&&currentTask.categoryId===c.id?'active':''}"
+            onclick="startTask('${c.id}')" ${!isIdle&&!currentTask?'disabled':''}>
+      <span class="cat-icon">${c.icon}</span>${c.name}
+    </button>`).join('');
+}
+
+function updateControlsVisibility(){
+  const working=!!currentTask, interrupted=!!interruptionState, hasResume=!!resumeInfo;
+  toggle('action-working',working); toggle('action-interrupted',interrupted);
+  toggle('goal-selector',working); toggle('customer-section',working);
+  toggle('sub-selector',working&&currentTask&&currentTask.categoryId==='travel');
+  document.getElementById('resume-banner').classList.toggle('show',hasResume&&!working&&!interrupted);
+  if(hasResume&&!working&&!interrupted){
+    const cat=getCat(resumeInfo.categoryId);
+    let txt = `${cat.icon} ${cat.name}`;
+    if(resumeInfo.customerName) txt += ` / ${resumeInfo.customerName}`;
+    document.getElementById('resume-cat').textContent = txt;
+  }
+  if(working&&currentTask){
+    document.querySelectorAll('.goal-btn').forEach(b=>{const v=parseInt(b.textContent)||0;b.classList.toggle('active',v===(currentTask.goalMinutes||0));});
+    if(currentTask.categoryId==='travel'){
+      document.querySelectorAll('.sub-btn').forEach(b=>{const s=b.getAttribute('onclick').match(/'([^']*)'/);if(s){const v=s[1]==='null'?null:s[1];b.classList.toggle('active',v===currentTask.subCategory);}});
+    }
+  }
+}
+
+function toggle(id,show){ document.getElementById(id).classList.toggle('hidden',!show); }
+
+function updateTimerUI(){
+  const statusEl=document.getElementById('current-status'),catEl=document.getElementById('status-category'),timeEl=document.getElementById('status-time'),startedEl=document.getElementById('status-started'),labelEl=document.getElementById('status-label'),goalEl=document.getElementById('goal-display'),intEl=document.getElementById('interrupt-info');
+  statusEl.className='current-status'; goalEl.classList.add('hidden'); intEl.classList.add('hidden');
+  if(interruptionState){
+    statusEl.classList.add('interrupted'); labelEl.textContent='⚠️ 中断中';
+    const rName=INTERRUPT_REASONS[interruptionState.reason]||'その他',rIcon=INTERRUPT_ICONS[interruptionState.reason]||'📌';
+    catEl.innerHTML=`<span class="status-dot amber"></span>${rIcon} ${rName}`;
+    timeEl.textContent=formatDuration(Date.now()-interruptionState.start);
+    intEl.classList.remove('hidden');
+    const origCat=getCat(interruptionState.originalTask.categoryId);
+    intEl.innerHTML=`元の作業: ${origCat.icon} ${origCat.name}`;
+    startedEl.textContent=`${formatTime(interruptionState.start)} から中断中`;
+  } else if(currentTask){
+    labelEl.textContent='現在の作業';
+    const cat=getCat(currentTask.categoryId);
+    let catText=`${cat.icon} ${cat.name}`;
+    if(currentTask.subCategory&&currentTask.categoryId==='travel') catText+=`+${SUB_CATEGORIES[currentTask.subCategory]||''}`;
+    const elapsed=Date.now()-currentTask.start, goalMs=(currentTask.goalMinutes||0)*60000;
+    if(goalMs>0&&elapsed>goalMs){
+      statusEl.classList.add('exceeded'); catEl.innerHTML=`<span class="status-dot red"></span>${catText}`;
+      goalEl.classList.remove('hidden'); goalEl.className='goal-display over';
+      goalEl.textContent=`⚠️ 目標 ${currentTask.goalMinutes}分を ${formatHM(elapsed-goalMs)} 超過中`;
+      if(!currentTask.alerted){currentTask.alerted=true;saveCurrentTask();playAlert();}
+    } else if(goalMs>0){
+      catEl.innerHTML=`<span class="status-dot"></span>${catText}`;
+      goalEl.classList.remove('hidden');
+      const remain=goalMs-elapsed;
+      if(remain<60000){goalEl.className='goal-display warning';goalEl.textContent=`⏳ 残り ${Math.ceil(remain/1000)}秒`;}
+      else{goalEl.className='goal-display';goalEl.textContent=`🎯 目標 ${currentTask.goalMinutes}分 / 残り ${formatHM(remain)}`;}
+    } else { catEl.innerHTML=`<span class="status-dot"></span>${catText}`; }
+    timeEl.textContent=formatDuration(elapsed);
+    startedEl.textContent=`${formatTime(currentTask.start)} から計測中`;
+    updateStatusCustomer();
+  } else {
+    labelEl.textContent='現在の作業'; catEl.textContent='待機中'; timeEl.textContent='00:00:00'; startedEl.textContent='';
+    document.getElementById('status-customer').textContent='';
+    document.getElementById('status-docno').textContent='';
+  }
+}
+
+// ============ TAB ============
+function switchTab(tab,btn){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('page-'+tab).classList.add('active');
+  btn.classList.add('active');
+  if(tab==='history') renderHistory();
+  if(tab==='analysis') renderAnalysis();
+}
+
+// ============ HISTORY ============
+function renderHistory(){
+  const today=todayStr(), allRec=getRecords();
+  const records=allRec.filter(r=>dateStr(r.start)===today).sort((a,b)=>b.start-a.start);
+  const now=new Date();
+  document.getElementById('history-date').textContent=`${now.getFullYear()}年${now.getMonth()+1}月${now.getDate()}日（${'日月火水木金土'[now.getDay()]}）`;
+  const workRecs=records.filter(r=>(r.type||'work')==='work'), intRecs=records.filter(r=>r.type==='interruption');
+  const totalWork=workRecs.reduce((s,r)=>s+r.duration,0), totalInt=intRecs.reduce((s,r)=>s+r.duration,0);
+  document.getElementById('history-summary').innerHTML=`
+    <div class="summary-item"><div class="summary-label">作業時間</div><div class="summary-value">${formatHM(totalWork)}</div></div>
+    <div class="summary-item"><div class="summary-label">中断</div><div class="summary-value amber">${intRecs.length}回 ${formatHM(totalInt)}</div></div>`;
+  const list=document.getElementById('history-list');
+  if(records.length===0){list.innerHTML='<div class="history-empty">記録がありません</div>';return;}
+  list.innerHTML=records.map(r=>{
+    const ridx=allRec.indexOf(r);
+    if(r.type==='interruption'){
+      const rName=INTERRUPT_REASONS[r.reason]||'その他',rIcon=INTERRUPT_ICONS[r.reason]||'📌',parentCat=getCat(r.parentCategoryId);
+      return `<div class="history-item interruption" onclick="openEditModal(${ridx})">
+        <span class="history-icon">${rIcon}</span>
+        <div class="history-info"><div class="history-cat">中断: ${rName}</div><div class="history-sub">元の作業: ${parentCat.name}</div><div class="history-time-range">${formatTime(r.start)} - ${formatTime(r.end)}</div></div>
+        <div class="history-duration">${formatHM(r.duration)}</div></div>`;
+    }
+    const cat=getCat(r.categoryId);
+    let catName=cat.name;
+    if(r.subCategory&&r.categoryId==='travel') catName+=`+${SUB_CATEGORIES[r.subCategory]||''}`;
+    const custDisplay = r.customerName ? `<div class="history-customer">👤 ${r.customerName}</div>` : '';
+    const docNoLabel = DOC_NO_CATEGORIES[r.categoryId];
+    const docNoDisplay = (r.documentNo && docNoLabel) ? `<div class="history-docno">${docNoLabel}: ${r.documentNo}</div>` : '';
+    let badges='';
+    if(r.goalMinutes>0) badges+=`<span class="badge badge-goal">🎯${r.goalMinutes}分</span>`;
+    if(r.exceeded) badges+=`<span class="badge badge-exceeded">超過 +${formatHM(r.exceededTime)}</span>`;
+    return `<div class="history-item ${r.exceeded?'exceeded-item':''}" onclick="openEditModal(${ridx})">
+      <span class="history-icon">${cat.icon}</span>
+      <div class="history-info"><div class="history-cat">${catName}</div>${custDisplay}${docNoDisplay}<div class="history-time-range">${formatTime(r.start)} - ${formatTime(r.end)}</div>${badges?'<div class="history-badges">'+badges+'</div>':''}</div>
+      <div class="history-duration">${formatHM(r.duration)}</div></div>`;
+  }).join('');
+}
+
+// ============ ANALYSIS ============
+let analysisPeriod='today';
+function setPeriod(p,btn){analysisPeriod=p;document.querySelectorAll('.period-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');renderAnalysis();}
+
+function getFilteredRecords(){
+  const records=getRecords(),now=new Date();
+  return records.filter(r=>{const d=new Date(r.start);
+    if(analysisPeriod==='today') return d.toDateString()===now.toDateString();
+    if(analysisPeriod==='week'){const w=new Date(now);w.setDate(w.getDate()-7);return d>=w;}
+    return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear();
+  });
+}
+
+function renderAnalysis(){
+  const records=getFilteredRecords();
+  const workRecs=records.filter(r=>(r.type||'work')==='work'), intRecs=records.filter(r=>r.type==='interruption');
+  const totalWork=workRecs.reduce((s,r)=>s+r.duration,0), totalInt=intRecs.reduce((s,r)=>s+r.duration,0);
+  const exceededCount=workRecs.filter(r=>r.exceeded).length;
+  const travelRecs=workRecs.filter(r=>r.categoryId==='travel');
+  const travelOnly=travelRecs.filter(r=>!r.subCategory).reduce((s,r)=>s+r.duration,0);
+  const travelWork=travelRecs.filter(r=>r.subCategory&&r.subCategory!=='rest').reduce((s,r)=>s+r.duration,0);
+  const travelRest=travelRecs.filter(r=>r.subCategory==='rest').reduce((s,r)=>s+r.duration,0);
+  const travelTotal=travelRecs.reduce((s,r)=>s+r.duration,0);
+
+  document.getElementById('stats-grid').innerHTML=`
+    <div class="stat-card"><div class="stat-label">総作業時間</div><div class="stat-value">${formatHM(totalWork)}</div></div>
+    <div class="stat-card"><div class="stat-label">中断</div><div class="stat-value small">${intRecs.length}回 / ${formatHM(totalInt)}</div></div>
+    <div class="stat-card"><div class="stat-label">目標超過</div><div class="stat-value" style="color:${exceededCount>0?'var(--red)':'var(--green)'}">${exceededCount}回</div></div>
+    <div class="stat-card"><div class="stat-label">移動時間</div><div class="stat-value small">${formatHM(travelTotal)}</div></div>`;
+
+  const totals={};CATEGORIES.forEach(c=>{totals[c.id]=0;});
+  workRecs.forEach(r=>{totals[r.categoryId]=(totals[r.categoryId]||0)+r.duration;});
+  drawPieChart(totals,totalWork);
+
+  let salesTime=0,indirectTime=0,travelTime=0,otherTime=0;
+  CATEGORIES.forEach(c=>{if(c.type==='sales')salesTime+=totals[c.id];else if(c.type==='indirect')indirectTime+=totals[c.id];else if(c.type==='travel')travelTime+=totals[c.id];else otherTime+=totals[c.id];});
+  const sp=totalWork>0?(salesTime/totalWork*100):0,ip=totalWork>0?(indirectTime/totalWork*100):0,tp=totalWork>0?(travelTime/totalWork*100):0,op=totalWork>0?(otherTime/totalWork*100):0;
+  document.getElementById('ratio-container').innerHTML=`
+    <div class="ratio-bar-outer"><div class="ratio-bar-seg" style="width:${sp}%;background:var(--accent)">${sp>8?Math.round(sp)+'%':''}</div><div class="ratio-bar-seg" style="width:${ip}%;background:var(--orange)">${ip>8?Math.round(ip)+'%':''}</div><div class="ratio-bar-seg" style="width:${tp}%;background:#6c757d">${tp>8?Math.round(tp)+'%':''}</div><div class="ratio-bar-seg" style="width:${op}%;background:#555">${op>8?Math.round(op)+'%':''}</div></div>
+    <div class="ratio-legend"><span class="leg-sales">営業 ${Math.round(sp)}%</span><span class="leg-indirect">間接 ${Math.round(ip)}%</span><span class="leg-travel">移動 ${Math.round(tp)}%</span><span class="leg-other">他 ${Math.round(op)}%</span></div>`;
+
+  const tbEl=document.getElementById('travel-breakdown'),ttEl=document.getElementById('travel-title');
+  if(travelTotal>0){tbEl.classList.remove('hidden');ttEl.classList.remove('hidden');
+    tbEl.innerHTML=`<div class="travel-row"><span class="travel-label">🚗 移動のみ</span><span class="travel-value">${formatHM(travelOnly)}</span></div><div class="travel-row"><span class="travel-label">🚗+📋 移動+作業</span><span class="travel-value">${formatHM(travelWork)}</span></div><div class="travel-row"><span class="travel-label">🚗+☕ 移動+休憩</span><span class="travel-value">${formatHM(travelRest)}</span></div>`;
+  } else {tbEl.classList.add('hidden');ttEl.classList.add('hidden');}
+
+  const sorted=CATEGORIES.filter(c=>totals[c.id]>0).sort((a,b)=>totals[b.id]-totals[a.id]);
+  document.getElementById('breakdown-list').innerHTML=sorted.map(c=>{
+    const pct=totalWork>0?(totals[c.id]/totalWork*100):0;
+    return `<div class="breakdown-item"><span class="breakdown-icon">${c.icon}</span><div class="breakdown-info"><div class="breakdown-cat">${c.name}</div><div class="breakdown-bar-outer"><div class="breakdown-bar-inner" style="width:${pct}%;background:${COLORS[c.id]}"></div></div></div><div><div class="breakdown-time">${formatHM(totals[c.id])}</div><div class="breakdown-pct">${Math.round(pct)}%</div></div></div>`;
+  }).join('')||'<div class="history-empty">データがありません</div>';
+
+  // Customer analysis
+  renderCustomerAnalysis(workRecs);
+}
+
+function renderCustomerAnalysis(workRecs){
+  const custMap = {};
+  workRecs.forEach(r => {
+    const name = r.customerName || '';
+    if(!name) return;
+    if(!custMap[name]) custMap[name] = { total: 0, count: 0, lastDate: 0, cats: {} };
+    custMap[name].total += r.duration;
+    custMap[name].count++;
+    if(r.start > custMap[name].lastDate) custMap[name].lastDate = r.start;
+    const catName = getCat(r.categoryId).name;
+    custMap[name].cats[catName] = (custMap[name].cats[catName]||0) + r.duration;
+  });
+  const sorted = Object.entries(custMap).sort((a,b) => b[1].total - a[1].total).slice(0, 10);
+  const el = document.getElementById('customer-analysis');
+  if(sorted.length === 0){ el.innerHTML = '<div class="history-empty">顧客データなし</div>'; return; }
+  el.innerHTML = sorted.map(([name, d]) => {
+    const catTags = Object.entries(d.cats).sort((a,b)=>b[1]-a[1]).map(([cn,t])=>`<span class="cust-cat-tag">${cn} ${formatHM(t)}</span>`).join('');
+    return `<div class="cust-item">
+      <div class="cust-header"><span class="cust-name">👤 ${name}</span><span class="cust-total">${formatHM(d.total)}</span></div>
+      <div class="cust-meta"><span>${d.count}件</span><span>最終: ${dateStr(d.lastDate)}</span></div>
+      <div class="cust-cats">${catTags}</div></div>`;
+  }).join('');
+}
+
+function drawPieChart(totals,grandTotal){
+  const canvas=document.getElementById('pie-chart'),ctx=canvas.getContext('2d'),dpr=window.devicePixelRatio||1;
+  canvas.width=240*dpr;canvas.height=240*dpr;ctx.scale(dpr,dpr);
+  const cx=120,cy=120,r=95,ir=55;ctx.clearRect(0,0,240,240);
+  if(grandTotal===0){ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.arc(cx,cy,ir,0,Math.PI*2,true);ctx.fillStyle='#2a2a4a';ctx.fill();ctx.fillStyle='#666';ctx.font='14px -apple-system,sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('データなし',cx,cy);return;}
+  let sa=-Math.PI/2;
+  CATEGORIES.forEach(c=>{if(totals[c.id]<=0)return;const sl=(totals[c.id]/grandTotal)*Math.PI*2;ctx.beginPath();ctx.arc(cx,cy,r,sa,sa+sl);ctx.arc(cx,cy,ir,sa+sl,sa,true);ctx.closePath();ctx.fillStyle=COLORS[c.id];ctx.fill();sa+=sl;});
+  ctx.fillStyle='#0f0f1a';ctx.beginPath();ctx.arc(cx,cy,ir-1,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#fff';ctx.font='bold 15px -apple-system,sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(formatHM(grandTotal),cx,cy-8);
+  ctx.fillStyle='#888';ctx.font='11px -apple-system,sans-serif';ctx.fillText('合計',cx,cy+12);
+}
+
+// ============ EDIT / DELETE ============
+let editIndex=-1, editCategoryId='', editSubCategory=null, editReason='';
+
+function openEditModal(idx){
+  const records=getRecords();if(idx<0||idx>=records.length)return;
+  editIndex=idx; const r=records[idx]; const isInt=r.type==='interruption';
+  document.getElementById('edit-title').textContent=isInt?'中断を編集':'記録を編集';
+  const startD=new Date(r.start),endD=new Date(r.end);
+  document.getElementById('edit-start').value=`${String(startD.getHours()).padStart(2,'0')}:${String(startD.getMinutes()).padStart(2,'0')}`;
+  document.getElementById('edit-end').value=`${String(endD.getHours()).padStart(2,'0')}:${String(endD.getMinutes()).padStart(2,'0')}`;
+  const catSection=document.getElementById('edit-cat-section'),subSection=document.getElementById('edit-sub-section'),reasonSection=document.getElementById('edit-reason-section'),custSection=document.getElementById('edit-customer-section'),docNoSection=document.getElementById('edit-docno-section');
+  if(isInt){
+    catSection.classList.add('hidden');subSection.classList.add('hidden');reasonSection.classList.remove('hidden');custSection.classList.add('hidden');docNoSection.classList.add('hidden');
+    editReason=r.reason||'other'; renderEditReasons();
+  } else {
+    catSection.classList.remove('hidden');reasonSection.classList.add('hidden');custSection.classList.remove('hidden');
+    editCategoryId=r.categoryId||'other'; editSubCategory=r.subCategory||null;
+    document.getElementById('edit-customer').value=r.customerName||'';
+    document.getElementById('edit-docno').value=r.documentNo||'';
+    renderEditCustomerChips();
+    renderEditCategories();
+    updateEditDocNoVisibility();
+    if(editCategoryId==='travel'){subSection.classList.remove('hidden');renderEditSubs();}else{subSection.classList.add('hidden');}
+  }
+  document.getElementById('confirm-delete-btn').classList.remove('show');
+  document.getElementById('edit-delete-btn').style.display='';
+  document.getElementById('edit-modal').classList.add('show');
+}
+
+function closeEditModal(){document.getElementById('edit-modal').classList.remove('show');editIndex=-1;}
+
+function renderEditCategories(){
+  document.getElementById('edit-cat-grid').innerHTML=CATEGORIES.map(c=>
+    `<button class="edit-cat-btn ${editCategoryId===c.id?'active':''}" onclick="selectEditCat('${c.id}')"><span class="ec-icon">${c.icon}</span>${c.name}</button>`).join('');
+}
+function selectEditCat(id){editCategoryId=id;renderEditCategories();const s=document.getElementById('edit-sub-section');if(id==='travel'){s.classList.remove('hidden');renderEditSubs();}else{s.classList.add('hidden');editSubCategory=null;}updateEditDocNoVisibility();}
+function updateEditDocNoVisibility(){
+  const sec=document.getElementById('edit-docno-section'),lbl=document.getElementById('edit-docno-label');
+  if(DOC_NO_CATEGORIES[editCategoryId]){sec.classList.remove('hidden');lbl.textContent=DOC_NO_CATEGORIES[editCategoryId];}
+  else{sec.classList.add('hidden');}
+}
+function renderEditSubs(){
+  const subs=[{id:null,name:'なし'},{id:'email',name:'メール'},{id:'phone',name:'電話'},{id:'docs_review',name:'資料確認'},{id:'planning',name:'計画'},{id:'rest',name:'休憩'},{id:'other_sub',name:'その他'}];
+  document.getElementById('edit-sub-grid').innerHTML=subs.map(s=>`<button class="edit-sub-btn ${editSubCategory===s.id?'active':''}" onclick="selectEditSub(${s.id===null?'null':"'"+s.id+"'"})">${s.name}</button>`).join('');
+}
+function selectEditSub(id){editSubCategory=id;renderEditSubs();}
+function renderEditReasons(){
+  const reasons=[{id:'email_check',icon:'✉️',name:'メール確認'},{id:'phone',icon:'📞',name:'電話'},{id:'internal',icon:'👤',name:'社内依頼'},{id:'urgent',icon:'🔥',name:'急ぎ対応'},{id:'other',icon:'📌',name:'その他'}];
+  document.getElementById('edit-reason-grid').innerHTML=reasons.map(r=>`<button class="edit-sub-btn ${editReason===r.id?'active':''}" onclick="selectEditReason('${r.id}')">${r.icon} ${r.name}</button>`).join('');
+}
+function selectEditReason(id){editReason=id;renderEditReasons();}
+
+function renderEditCustomerChips(){
+  const list=getSortedCustomers().slice(0,6);
+  document.getElementById('edit-customer-chips').innerHTML=list.map(c=>
+    `<button class="recent-chip" onclick="document.getElementById('edit-customer').value='${c.name.replace(/'/g,"\\'")}';">${c.name}</button>`).join('');
+}
+
+function saveEditRecord(){
+  if(editIndex<0) return;
+  const records=getRecords(), r=records[editIndex];
+  const startVal=document.getElementById('edit-start').value,endVal=document.getElementById('edit-end').value;
+  if(!startVal||!endVal){closeEditModal();return;}
+  const origStart=new Date(r.start),[sh,sm]=startVal.split(':').map(Number),[eh,em]=endVal.split(':').map(Number);
+  const newStart=new Date(origStart);newStart.setHours(sh,sm,0,0);
+  const newEnd=new Date(origStart);newEnd.setHours(eh,em,0,0);
+  if(newEnd<=newStart){closeEditModal();return;}
+  r.start=newStart.getTime();r.end=newEnd.getTime();r.duration=r.end-r.start;
+  if(r.type==='interruption'){r.reason=editReason;}
+  else{
+    r.categoryId=editCategoryId;r.subCategory=(editCategoryId==='travel')?editSubCategory:null;
+    const custVal=(document.getElementById('edit-customer').value||'').trim();
+    r.customerName=custVal;
+    r.documentNo=DOC_NO_CATEGORIES[editCategoryId]?(document.getElementById('edit-docno').value||'').trim():'';
+    if(custVal) addCustomerToList(custVal);
+    const goalMs=(r.goalMinutes||0)*60000;
+    if(goalMs>0){r.exceeded=r.duration>goalMs;r.exceededTime=r.exceeded?r.duration-goalMs:0;}
+  }
+  saveRecords(records);closeEditModal();renderHistory();
+}
+
+function showDeleteConfirm(){document.getElementById('edit-delete-btn').style.display='none';document.getElementById('confirm-delete-btn').classList.add('show');}
+function deleteEditRecord(){if(editIndex<0)return;const records=getRecords();records.splice(editIndex,1);saveRecords(records);closeEditModal();renderHistory();}
+
+// ============ EXPORT / IMPORT ============
+function exportCSV(){
+  const records=getRecords();
+  const header='type,categoryId,category,subCategory,customerName,documentNo,start,end,duration_min,goalMinutes,exceeded,reason\n';
+  const rows=records.map(r=>{
+    const cat=getCat(r.categoryId||'');
+    const catName=(r.type==='interruption')?'中断':cat.name;
+    const sub=r.subCategory?SUB_CATEGORIES[r.subCategory]||r.subCategory:'';
+    const cust=(r.customerName||'').replace(/,/g,'_');
+    const docNo=(r.documentNo||'').replace(/,/g,'_');
+    const s=new Date(r.start),e=new Date(r.end);
+    const sf=`${s.getFullYear()}/${String(s.getMonth()+1).padStart(2,'0')}/${String(s.getDate()).padStart(2,'0')} ${formatTime(r.start)}`;
+    const ef=`${e.getFullYear()}/${String(e.getMonth()+1).padStart(2,'0')}/${String(e.getDate()).padStart(2,'0')} ${formatTime(r.end)}`;
+    const dur=Math.round(r.duration/60000);
+    const reason=r.type==='interruption'?(INTERRUPT_REASONS[r.reason]||''):'';
+    return `${r.type||'work'},${r.categoryId||''},${catName},${sub},${cust},${docNo},${sf},${ef},${dur},${r.goalMinutes||0},${r.exceeded?'Y':'N'},${reason}`;
+  }).join('\n');
+  downloadFile(header+rows, `time-records-${todayStr()}.csv`, 'text/csv');
+}
+
+function exportJSON(){
+  const data={
+    version:2,
+    exportDate: new Date().toISOString(),
+    records: getRecords(),
+    customerList: getCustomerList(),
+    currentTask, interruptionState, resumeInfo
+  };
+  downloadFile(JSON.stringify(data,null,2), `time-backup-${todayStr()}.json`, 'application/json');
+}
+
+function importJSON(event){
+  const file=event.target.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      const data=JSON.parse(e.target.result);
+      if(data.records){
+        const existing=getRecords();
+        const merged=[...existing,...data.records.filter(nr=>!existing.some(er=>er.start===nr.start&&er.end===nr.end))];
+        saveRecords(merged);
+      }
+      if(data.customerList){
+        const existingCL=getCustomerList();
+        data.customerList.forEach(nc=>{
+          const ex=existingCL.find(c=>c.name===nc.name);
+          if(ex){ex.count=Math.max(ex.count,nc.count);ex.lastUsed=Math.max(ex.lastUsed,nc.lastUsed);}
+          else existingCL.push(nc);
+        });
+        saveCustomerList(existingCL);
+      }
+      alert('復元が完了しました（'+((data.records||[]).length)+'件）');
+      renderHistory(); renderAnalysis();
+    }catch(err){alert('ファイルの読み込みに失敗しました');}
+    event.target.value='';
+  };
+  reader.readAsText(file);
+}
+
+function downloadFile(content,filename,type){
+  const blob=new Blob(['﻿'+content],{type:type+';charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;a.download=filename;
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ============ INIT ============
+refreshUI();
+renderRecentCustomers();
+if(currentTask && currentTask.customerName){
+  const ci=document.getElementById('customer-input');
+  if(ci) ci.value=currentTask.customerName;
+}
+if(currentTask && currentTask.documentNo){
+  const di=document.getElementById('docno-input');
+  if(di) di.value=currentTask.documentNo;
+}
+timerInterval=setInterval(updateTimerUI,1000);
+if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').then(reg=>{reg.update();});}
+</script>
+</body>
+</html>
